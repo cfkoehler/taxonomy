@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-name: Lint
+name: Lint compositional_skills and knowledge
 
 on:
   workflow_dispatch:
@@ -11,7 +11,7 @@ on:
       - compositional_skills/**/qna.yaml
       - knowledge/**/qna.yaml
       - '.github/workflows/lint.yml' # This workflow
-      - '.github/scripts/**' # Scripts used by this workflow
+      - 'scripts/**' # Scripts used by this workflow
 
   pull_request:
     branches:
@@ -22,7 +22,7 @@ on:
       - knowledge/**/*.yaml
       - knowledge/**/*.yml
       - '.github/workflows/lint.yml' # This workflow
-      - '.github/scripts/**' # Scripts used by this workflow
+      - 'scripts/**' # Scripts used by this workflow
 
 env:
   LC_ALL: en_US.UTF-8
@@ -35,19 +35,18 @@ permissions:
   contents: read
 
 jobs:
-  lint:
+  yamllint:
     runs-on: ubuntu-latest
     steps:
       - name: "Harden Runner"
-        uses: step-security/harden-runner@f086349bfa2bd1361f7909c78558e816508cdc10 # v2.8.0
+        uses: step-security/harden-runner@17d0e2bd7d51742c71671bd19fa12bdc9d40a3d6 # v2.8.1
         with:
           egress-policy: audit # TODO: change to 'egress-policy: block' after couple of runs
 
       - name: "Checkout"
-        uses: actions/checkout@a5ac7e51b41094c92402da3b24376905380afc29 # v4.1.6
+        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
         with:
           fetch-depth: 0
-          submodules: true
 
       - name: "Setup Python"
         uses: actions/setup-python@82c7e631bb3cdc910f68e0081d67478d79c6982d # v5.1.0
@@ -56,11 +55,11 @@ jobs:
 
       - name: "Install Python Packages"
         run: |
-          pip install -r .github/scripts/requirements.txt
+          pip install -r scripts/requirements.txt
 
       - name: "Find changed skills and knowledge files"
         id: changed-files
-        uses: tj-actions/changed-files@03334d095e2739fa9ac4034ec16f66d5d01e9eba # v44.5.1
+        uses: tj-actions/changed-files@d6babd6899969df1a11d14c368283ea4436bca78 # v44.5.2
         with:
           files: |
             compositional_skills/**/*.yaml
@@ -69,12 +68,24 @@ jobs:
             knowledge/**/*.yml
 
       - name: "Check changed YAML file contents"
-        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+        if: ${{ fromJSON(steps.changed-files.outputs.any_changed) }}
         run: |
-          .github/scripts/check-yaml.py ${{ steps.changed-files.outputs.all_changed_files }}
+          scripts/check-yaml.py ${{ steps.changed-files.outputs.all_changed_files }}
         env:
-          SCHEMA_BASE: schema
           YAMLLINT_CONFIG: "{extends: relaxed, rules: {line-length: {max: 120}}}"
+          TAXONOMY_FOLDERS: >-
+            compositional_skills
+            knowledge
+
+      - name: "Check all YAML file contents"
+        if: ${{ !fromJSON(steps.changed-files.outputs.any_changed) }}
+        run: |
+          read -ra folders <<< "${TAXONOMY_FOLDERS}"
+          # shellcheck disable=SC2046
+          scripts/check-yaml.py $(find "${folders[@]}" -name "qna.yaml" -print)
+        env:
+          YAMLLINT_CONFIG: "{}" # No lint rules
+          SCHEMA_VERSION: 0 # use the schema version specified in the "version" key
           TAXONOMY_FOLDERS: >-
             compositional_skills
             knowledge
@@ -84,7 +95,7 @@ jobs:
         run: |
           echo "${PULL_REQUEST_NUMBER}" > pull_request_number.txt
         env:
-          PULL_REQUEST_NUMBER: ${{ steps.changed-files.outputs.any_changed == 'true' && github.event.number || '0' }}
+          PULL_REQUEST_NUMBER: ${{ fromJSON(steps.changed-files.outputs.any_changed) && github.event.number || '0' }}
 
       - name: "Upload Pull Request number"
         if: ${{ (github.event_name == 'pull_request') && (github.repository == 'instructlab/taxonomy') }}
